@@ -3,6 +3,10 @@ import type { Student, Committee, Criterion, Evaluation } from '../types';
 import { StudentStatus } from '../types';
 import { getInitialCommittees, getInitialCriteria, getInitialStudents } from '../services/mockApi';
 
+const STUDENTS_STORAGE_KEY = 'oral_exam_students';
+const COMMITTEES_STORAGE_KEY = 'oral_exam_committees';
+const CRITERIA_STORAGE_KEY = 'oral_exam_criteria';
+
 interface DataContextType {
     students: Student[];
     committees: Committee[];
@@ -13,6 +17,7 @@ interface DataContextType {
     getNextStudent: (id: number) => Student | undefined;
     completeEvaluation: (studentId: number, evaluation: Evaluation) => void;
     findStudentById: (studentId: string) => Student | undefined;
+    addStudents: (newStudents: Student[]) => void;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -23,10 +28,72 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const [criteria, setCriteria] = useState<Criterion[]>([]);
 
     useEffect(() => {
-        setStudents(getInitialStudents());
-        setCommittees(getInitialCommittees());
-        setCriteria(getInitialCriteria());
+        // Initialize data from localStorage or fall back to mock data
+        const loadData = () => {
+            try {
+                const storedStudents = localStorage.getItem(STUDENTS_STORAGE_KEY);
+                if (storedStudents) {
+                    setStudents(JSON.parse(storedStudents));
+                } else {
+                    const initialStudents = getInitialStudents();
+                    setStudents(initialStudents);
+                    localStorage.setItem(STUDENTS_STORAGE_KEY, JSON.stringify(initialStudents));
+                }
+
+                const storedCommittees = localStorage.getItem(COMMITTEES_STORAGE_KEY);
+                if (storedCommittees) {
+                    setCommittees(JSON.parse(storedCommittees));
+                } else {
+                    const initialCommittees = getInitialCommittees();
+                    setCommittees(initialCommittees);
+                    localStorage.setItem(COMMITTEES_STORAGE_KEY, JSON.stringify(initialCommittees));
+                }
+
+                const storedCriteria = localStorage.getItem(CRITERIA_STORAGE_KEY);
+                if (storedCriteria) {
+                    setCriteria(JSON.parse(storedCriteria));
+                } else {
+                    const initialCriteria = getInitialCriteria();
+                    setCriteria(initialCriteria);
+                    localStorage.setItem(CRITERIA_STORAGE_KEY, JSON.stringify(initialCriteria));
+                }
+            } catch (error) {
+                console.error("Failed to load data from localStorage", error);
+                // Fallback to mock data if localStorage is corrupt
+                setStudents(getInitialStudents());
+                setCommittees(getInitialCommittees());
+                setCriteria(getInitialCriteria());
+            }
+        };
+        
+        loadData();
+
+        // Real-time sync listener for cross-tab updates
+        const handleStorageChange = (event: StorageEvent) => {
+            if (event.key === STUDENTS_STORAGE_KEY && event.newValue) {
+                setStudents(JSON.parse(event.newValue));
+            }
+        };
+
+        window.addEventListener('storage', handleStorageChange);
+
+        return () => {
+            window.removeEventListener('storage', handleStorageChange);
+        };
     }, []);
+    
+    const updateStudentsStateAndStorage = (updatedStudents: Student[]) => {
+        setStudents(updatedStudents);
+        localStorage.setItem(STUDENTS_STORAGE_KEY, JSON.stringify(updatedStudents));
+    }
+
+    const addStudents = (newStudents: Student[]) => {
+        const existingIds = new Set(students.map(s => s.id));
+        const uniqueNewStudents = newStudents.filter(s => !existingIds.has(s.id));
+
+        const updatedStudents = [...students, ...uniqueNewStudents];
+        updateStudentsStateAndStorage(updatedStudents);
+    };
 
     const getCommitteeById = (id: number): Committee | undefined => {
         return committees.find(c => c.id === id);
@@ -38,46 +105,37 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     const getCurrentStudent = (committeeId: number): Student | undefined => {
         const committeeStudents = getStudentsByCommitteeId(committeeId);
-        // FIX: Use StudentStatus enum for type safety and consistency.
         return committeeStudents.find(s => s.status === StudentStatus.InProgress);
     }
 
     const getNextStudent = (committeeId: number): Student | undefined => {
         const committeeStudents = getStudentsByCommitteeId(committeeId);
-        // FIX: Use StudentStatus enum for type safety and consistency.
         const waitingStudents = committeeStudents.filter(s => s.status === StudentStatus.Waiting);
         return waitingStudents.length > 0 ? waitingStudents[0] : undefined;
     }
 
     const completeEvaluation = (studentId: number, evaluation: Evaluation) => {
-        setStudents(prevStudents => {
-            const newStudents = [...prevStudents];
-            const studentIndex = newStudents.findIndex(s => s.id === studentId);
-            if (studentIndex === -1) return prevStudents;
-            
-            const currentStudent = newStudents[studentIndex];
-            
-            // Mark current student as completed
-            // FIX: Use StudentStatus enum to fix "Type '...' is not assignable to type 'StudentStatus'" error.
-            newStudents[studentIndex] = { ...currentStudent, status: StudentStatus.Completed, evaluation };
+        const newStudents = [...students];
+        const studentIndex = newStudents.findIndex(s => s.id === studentId);
+        if (studentIndex === -1) return;
+        
+        const currentStudent = newStudents[studentIndex];
+        
+        newStudents[studentIndex] = { ...currentStudent, status: StudentStatus.Completed, evaluation };
 
-            // Find next waiting student for the same committee and mark as in progress
-            const committeeStudents = newStudents
-                // FIX: Use StudentStatus enum for type safety and consistency.
-                .filter(s => s.committeeId === currentStudent.committeeId && s.status === StudentStatus.Waiting)
-                .sort((a, b) => a.queuePosition - b.queuePosition);
+        const committeeStudents = newStudents
+            .filter(s => s.committeeId === currentStudent.committeeId && s.status === StudentStatus.Waiting)
+            .sort((a, b) => a.queuePosition - b.queuePosition);
 
-            if (committeeStudents.length > 0) {
-                const nextStudentId = committeeStudents[0].id;
-                const nextStudentIndex = newStudents.findIndex(s => s.id === nextStudentId);
-                if(nextStudentIndex !== -1) {
-                    // FIX: Use StudentStatus enum to fix "Type '...' is not assignable to type 'StudentStatus'" error.
-                    newStudents[nextStudentIndex] = { ...newStudents[nextStudentIndex], status: StudentStatus.InProgress };
-                }
+        if (committeeStudents.length > 0) {
+            const nextStudentId = committeeStudents[0].id;
+            const nextStudentIndex = newStudents.findIndex(s => s.id === nextStudentId);
+            if(nextStudentIndex !== -1) {
+                newStudents[nextStudentIndex] = { ...newStudents[nextStudentIndex], status: StudentStatus.InProgress };
             }
-
-            return newStudents;
-        });
+        }
+        
+        updateStudentsStateAndStorage(newStudents);
     };
     
     const findStudentById = (studentId: string): Student | undefined => {
@@ -87,7 +145,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
 
     return (
-        <DataContext.Provider value={{ students, committees, criteria, getCommitteeById, getStudentsByCommitteeId, getCurrentStudent, getNextStudent, completeEvaluation, findStudentById }}>
+        <DataContext.Provider value={{ students, committees, criteria, getCommitteeById, getStudentsByCommitteeId, getCurrentStudent, getNextStudent, completeEvaluation, findStudentById, addStudents }}>
             {children}
         </DataContext.Provider>
     );

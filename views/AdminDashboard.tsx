@@ -1,8 +1,114 @@
-
-import React from 'react';
+import React, { useState } from 'react';
 import { useData } from '../context/DataContext';
 import { StudentStatus } from '../types';
+import type { Student } from '../types';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+
+
+const StudentImporter: React.FC = () => {
+    const { addStudents, students, getStudentsByCommitteeId } = useData();
+    const [csvFile, setCsvFile] = useState<File | null>(null);
+    const [feedback, setFeedback] = useState<{type: 'success' | 'error', message: string} | null>(null);
+    const [isLoading, setIsLoading] = useState(false);
+
+    const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+        if (event.target.files && event.target.files.length > 0) {
+            setCsvFile(event.target.files[0]);
+            setFeedback(null);
+        }
+    };
+
+    const handleImport = () => {
+        if (!csvFile) {
+            setFeedback({ type: 'error', message: 'الرجاء اختيار ملف أولاً.' });
+            return;
+        }
+        setIsLoading(true);
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const text = e.target?.result as string;
+                const rows = text.split('\n').filter(row => row.trim() !== '');
+                const header = rows.shift()?.trim().split(',').map(h => h.trim());
+                
+                if (!header || !['id', 'name', 'specialty', 'committeeId'].every(h => header.includes(h))) {
+                    throw new Error('ملف CSV يجب أن يحتوي على الأعمدة: id, name, specialty, committeeId');
+                }
+
+                const existingIds = new Set(students.map(s => s.id));
+                
+                const newStudents: Student[] = rows.map((row, index) => {
+                    const values = row.trim().split(',');
+                    const studentData: any = {};
+                    header.forEach((h, i) => studentData[h] = values[i]?.trim());
+                    
+                    const id = parseInt(studentData.id, 10);
+                    const committeeId = parseInt(studentData.committeeId, 10);
+
+                    if (isNaN(id) || isNaN(committeeId)) throw new Error(`خطأ في السطر ${index + 2}: ID و committeeId يجب أن تكون أرقام.`);
+                    if (!studentData.name) throw new Error(`خطأ في السطر ${index + 2}: الاسم مطلوب.`);
+                    if (existingIds.has(id)) throw new Error(`خطأ في السطر ${index + 2}: رقم التسجيل ${id} موجود بالفعل.`);
+                    
+                    const committeeStudents = getStudentsByCommitteeId(committeeId);
+                    const maxQueuePos = Math.max(0, ...committeeStudents.map(s => s.queuePosition));
+
+                    return {
+                        id,
+                        name: studentData.name,
+                        specialty: studentData.specialty || 'غير محدد',
+                        committeeId,
+                        status: StudentStatus.Waiting,
+                        queuePosition: maxQueuePos + 1,
+                    };
+                });
+                
+                addStudents(newStudents);
+                setFeedback({ type: 'success', message: `تم استيراد ${newStudents.length} طالب بنجاح!` });
+                setCsvFile(null);
+            } catch (error: any) {
+                setFeedback({ type: 'error', message: error.message || 'حدث خطأ أثناء معالجة الملف.' });
+            } finally {
+                setIsLoading(false);
+            }
+        };
+        reader.onerror = () => {
+            setIsLoading(false);
+            setFeedback({ type: 'error', message: 'فشل في قراءة الملف.' });
+        }
+        reader.readAsText(csvFile);
+    };
+
+    return (
+        <div className="bg-white p-6 rounded-xl shadow-lg">
+            <h2 className="text-xl font-bold text-gray-700 mb-4">استيراد الطلبة</h2>
+            <p className="text-gray-500 mb-4">
+                قم برفع ملف CSV لإضافة طلبة جدد للنظام. يجب أن يحتوي الملف على الأعمدة التالية: 
+                <code className="bg-gray-200 p-1 rounded text-sm">id,name,specialty,committeeId</code>.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-4">
+                <input
+                    type="file"
+                    accept=".csv"
+                    onChange={handleFileChange}
+                    className="flex-grow p-2 border border-gray-300 rounded-lg file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                />
+                <button
+                    onClick={handleImport}
+                    disabled={isLoading || !csvFile}
+                    className="bg-blue-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-blue-700 transition disabled:bg-gray-400 disabled:cursor-not-allowed"
+                >
+                    {isLoading ? 'جاري الاستيراد...' : 'استيراد'}
+                </button>
+            </div>
+            {feedback && (
+                <div className={`mt-4 p-3 rounded-lg text-sm ${feedback.type === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                    {feedback.message}
+                </div>
+            )}
+        </div>
+    );
+};
+
 
 const AdminDashboard: React.FC = () => {
     const { students, committees } = useData();
@@ -46,6 +152,8 @@ const AdminDashboard: React.FC = () => {
                     </BarChart>
                 </ResponsiveContainer>
             </div>
+
+            <StudentImporter />
 
         </div>
     );

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { useData } from '../context/DataContext';
 import type { Student } from '../types';
@@ -8,23 +7,23 @@ const StudentLookup: React.FC = () => {
     const [studentId, setStudentId] = useState('');
     const [foundStudent, setFoundStudent] = useState<Student | null>(null);
     const [error, setError] = useState('');
-    const { findStudentById, getStudentsByCommitteeId } = useData();
+    const { findStudentById, getStudentsByCommitteeId, students } = useData();
 
+    // This effect listens for real-time updates from the DataContext
+    // and updates the local student state if the student is currently displayed.
     useEffect(() => {
-        // Start polling only when a student is found and is in the 'WAITING' state.
-        if (foundStudent?.status === StudentStatus.Waiting) {
-            const interval = setInterval(() => {
-                // Fetch the latest student data to check for status or queue position changes.
-                const updatedStudent = findStudentById(String(foundStudent.id));
-                if (updatedStudent) {
-                    setFoundStudent(updatedStudent);
-                }
-            }, 5000); // Poll every 5 seconds.
-
-            // Clean up the interval when the component unmounts or the student's status changes.
-            return () => clearInterval(interval);
+        if (foundStudent) {
+            const updatedStudent = findStudentById(String(foundStudent.id));
+            if (updatedStudent) {
+                setFoundStudent(updatedStudent);
+            } else {
+                // The student might have been removed, handle this case
+                setFoundStudent(null);
+                setError('لم يعد الطالب موجوداً في النظام.');
+            }
         }
-    }, [foundStudent, findStudentById]);
+    }, [students, foundStudent?.id]);
+
 
     const handleSearch = (e: React.FormEvent) => {
         e.preventDefault();
@@ -64,14 +63,14 @@ const StudentLookup: React.FC = () => {
         
         // A student is next if they are at index 1 in the combined queue (index 0 is IN_PROGRESS).
         const inProgressStudentExists = committeeQueue.some(s => s.status === StudentStatus.InProgress);
-        const effectiveIndex = inProgressStudentExists ? myIndex - 1 : myIndex;
+        const myQueuePositionIfWaiting = inProgressStudentExists ? myIndex - 1 : myIndex;
 
-        const isNextInLine = myIndex === 1 && inProgressStudentExists;
-        const peopleAhead = myIndex;
+        const isNextInLine = inProgressStudentExists && myIndex === 1;
+        const peopleAhead = myQueuePositionIfWaiting;
         const estimatedWait = peopleAhead * 5; // Assuming 5 minutes per student
 
         return {
-            positionText: `دورك في الطابور هو ${myIndex}.`,
+            positionText: `دورك في طابور الانتظار هو ${myQueuePositionIfWaiting + 1}.`,
             waitText: peopleAhead > 0 ? `أمامك ${peopleAhead} طالب. الوقت التقديري للانتظار: ${estimatedWait} دقيقة.` : 'أنت التالي للدخول.',
             isNextInLine,
         };

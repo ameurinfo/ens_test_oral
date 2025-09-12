@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { useData } from '../context/DataContext';
 import type { Student } from '../types';
+import { StudentStatus } from '../types';
 
 const CommitteeView: React.FC = () => {
     const { committeeId } = useParams<{ committeeId: string }>();
@@ -12,7 +13,7 @@ const CommitteeView: React.FC = () => {
     const committeeStudents = getStudentsByCommitteeId(id);
     const currentStudent = getCurrentStudent(id);
     const nextStudent = getNextStudent(id);
-    const waitingQueue = committeeStudents.filter(s => s.status === 'WAITING');
+    const waitingQueue = committeeStudents.filter(s => s.status === StudentStatus.Waiting);
 
     const [scores, setScores] = useState<{ [key: number]: number }>({});
     const [notes, setNotes] = useState('');

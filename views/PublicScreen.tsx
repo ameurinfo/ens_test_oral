@@ -2,6 +2,7 @@ import React, { useEffect, useState, memo } from 'react';
 import { useParams } from 'react-router-dom';
 import { useData } from '../context/DataContext';
 import type { Student } from '../types';
+import { StudentStatus } from '../types';
 
 const QueueItem: React.FC<{ student: Student, index: number }> = ({ student, index }) => {
     const baseStyle = "p-4 rounded-lg transition-all duration-300";
@@ -54,7 +55,7 @@ const PublicScreen: React.FC = () => {
     const id = parseInt(committeeId || '0');
     const committee = getCommitteeById(id);
     const currentStudent = getCurrentStudent(id);
-    const waitingQueue = getStudentsByCommitteeId(id).filter(s => s.status === 'WAITING');
+    const waitingQueue = getStudentsByCommitteeId(id).filter(s => s.status === StudentStatus.Waiting);
 
     if (!committee) {
         return <div className="bg-gray-900 text-white min-h-screen flex items-center justify-center text-4xl">لم يتم العثور على اللجنة</div>;

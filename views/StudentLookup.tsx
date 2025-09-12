@@ -11,17 +11,17 @@ const StudentLookup: React.FC = () => {
     const { findStudentById, getStudentsByCommitteeId } = useData();
 
     useEffect(() => {
-        // FIX: Use StudentStatus.Waiting enum member with correct PascalCase casing.
+        // Start polling only when a student is found and is in the 'WAITING' state.
         if (foundStudent?.status === StudentStatus.Waiting) {
             const interval = setInterval(() => {
+                // Fetch the latest student data to check for status or queue position changes.
                 const updatedStudent = findStudentById(String(foundStudent.id));
-                // Always update the student data to ensure the component re-renders
-                // with the latest information, including queue position changes.
                 if (updatedStudent) {
                     setFoundStudent(updatedStudent);
                 }
-            }, 5000); // Poll every 5 seconds for status and queue changes
+            }, 5000); // Poll every 5 seconds.
 
+            // Clean up the interval when the component unmounts or the student's status changes.
             return () => clearInterval(interval);
         }
     }, [foundStudent, findStudentById]);
@@ -45,17 +45,14 @@ const StudentLookup: React.FC = () => {
     };
     
     const getQueuePositionInfo = (student: Student) => {
-        // FIX: Use StudentStatus.Completed enum member with correct PascalCase casing.
         if (student.status === StudentStatus.Completed) {
             return { positionText: 'لقد أكملت مقابلتك بنجاح.', waitText: 'نتمنى لك كل التوفيق!', isNextInLine: false };
         }
-        // FIX: Use StudentStatus.InProgress enum member with correct PascalCase casing.
         if (student.status === StudentStatus.InProgress) {
             return { positionText: 'أنت حالياً في المقابلة.', waitText: 'حظاً موفقاً!', isNextInLine: false };
         }
 
         const committeeQueue = getStudentsByCommitteeId(student.committeeId)
-            // FIX: Use StudentStatus enum members with correct PascalCase casing.
             .filter(s => s.status === StudentStatus.Waiting || s.status === StudentStatus.InProgress)
             .sort((a,b) => a.queuePosition - b.queuePosition);
         
@@ -65,14 +62,17 @@ const StudentLookup: React.FC = () => {
              return { positionText: 'أنت في قائمة الانتظار.', waitText: 'سيتم تحديد دورك قريباً.', isNextInLine: false };
         }
         
-        // The student is next if they are at index 1 (index 0 is IN_PROGRESS)
-        const isNextInLine = myIndex === 1;
+        // A student is next if they are at index 1 in the combined queue (index 0 is IN_PROGRESS).
+        const inProgressStudentExists = committeeQueue.some(s => s.status === StudentStatus.InProgress);
+        const effectiveIndex = inProgressStudentExists ? myIndex - 1 : myIndex;
+
+        const isNextInLine = myIndex === 1 && inProgressStudentExists;
         const peopleAhead = myIndex;
         const estimatedWait = peopleAhead * 5; // Assuming 5 minutes per student
 
         return {
-            positionText: `أنت رقم ${myIndex + 1} في الطابور.`,
-            waitText: `الوقت التقديري المتبقي للانتظار: ${estimatedWait} دقيقة.`,
+            positionText: `دورك في الطابور هو ${myIndex}.`,
+            waitText: peopleAhead > 0 ? `أمامك ${peopleAhead} طالب. الوقت التقديري للانتظار: ${estimatedWait} دقيقة.` : 'أنت التالي للدخول.',
             isNextInLine,
         };
     };
@@ -112,7 +112,6 @@ const StudentLookup: React.FC = () => {
                         {queueInfo.isNextInLine && <NotificationBanner />}
                         <h2 className="text-2xl font-bold text-gray-800 text-center">مرحباً, {foundStudent.name}</h2>
                         <div className="mt-4 text-center space-y-4">
-                            {/* FIX: Use StudentStatus.Completed enum member with correct PascalCase casing. */}
                             <div className={`p-6 rounded-lg ${foundStudent.status === StudentStatus.Completed ? 'bg-green-100' : 'bg-blue-100'}`}>
                                 <p className="text-xl font-bold text-blue-800">
                                     {queueInfo.positionText}
@@ -148,11 +147,8 @@ const UserSearchIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="
 
 const translateStatus = (status: StudentStatus) => {
     switch (status) {
-        // FIX: Use StudentStatus.Waiting enum member with correct PascalCase casing.
         case StudentStatus.Waiting: return 'في الانتظار';
-        // FIX: Use StudentStatus.InProgress enum member with correct PascalCase casing.
         case StudentStatus.InProgress: return 'في المقابلة';
-        // FIX: Use StudentStatus.Completed enum member with correct PascalCase casing.
         case StudentStatus.Completed: return 'مكتمل';
         default: return status;
     }

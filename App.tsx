@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { HashRouter, Route, Routes, NavLink, useLocation } from 'react-router-dom';
-import { DataProvider } from './context/DataContext';
+import { DataProvider, useData } from './context/DataContext';
 import AdminDashboard from './views/AdminDashboard';
 import CommitteeView from './views/CommitteeView';
 import PublicScreen from './views/PublicScreen';
@@ -21,7 +21,18 @@ const App: React.FC = () => {
 
 const MainContent: React.FC = () => {
     const location = useLocation();
+    const { isLoading } = useData();
     const isPublicView = location.pathname.startsWith('/public') || location.pathname.startsWith('/student');
+
+    if (isLoading) {
+        return (
+            <div className="flex h-screen items-center justify-center">
+                <div className="text-xl font-semibold text-gray-700">
+                    جاري تحميل البيانات من الخادم...
+                </div>
+            </div>
+        );
+    }
 
     if (isPublicView) {
         return (

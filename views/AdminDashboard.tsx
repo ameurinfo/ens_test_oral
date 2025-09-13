@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { useData } from '../context/DataContext';
 import { StudentStatus } from '../types';
@@ -6,7 +7,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsive
 
 
 const StudentImporter: React.FC = () => {
-    const { addStudents, students, getStudentsByCommitteeId } = useData();
+    const { addStudents } = useData();
     const [csvFile, setCsvFile] = useState<File | null>(null);
     const [feedback, setFeedback] = useState<{type: 'success' | 'error', message: string} | null>(null);
     const [isLoading, setIsLoading] = useState(false);
@@ -25,7 +26,7 @@ const StudentImporter: React.FC = () => {
         }
         setIsLoading(true);
         const reader = new FileReader();
-        reader.onload = (e) => {
+        reader.onload = async (e) => {
             try {
                 const text = e.target?.result as string;
                 const rows = text.split('\n').filter(row => row.trim() !== '');
@@ -34,8 +35,6 @@ const StudentImporter: React.FC = () => {
                 if (!header || !['id', 'name', 'specialty', 'committeeId'].every(h => header.includes(h))) {
                     throw new Error('ملف CSV يجب أن يحتوي على الأعمدة: id, name, specialty, committeeId');
                 }
-
-                const existingIds = new Set(students.map(s => s.id));
                 
                 const newStudents: Student[] = rows.map((row, index) => {
                     const values = row.trim().split(',');
@@ -47,23 +46,19 @@ const StudentImporter: React.FC = () => {
 
                     if (isNaN(id) || isNaN(committeeId)) throw new Error(`خطأ في السطر ${index + 2}: ID و committeeId يجب أن تكون أرقام.`);
                     if (!studentData.name) throw new Error(`خطأ في السطر ${index + 2}: الاسم مطلوب.`);
-                    if (existingIds.has(id)) throw new Error(`خطأ في السطر ${index + 2}: رقم التسجيل ${id} موجود بالفعل.`);
                     
-                    const committeeStudents = getStudentsByCommitteeId(committeeId);
-                    const maxQueuePos = Math.max(0, ...committeeStudents.map(s => s.queuePosition));
-
                     return {
                         id,
                         name: studentData.name,
                         specialty: studentData.specialty || 'غير محدد',
                         committeeId,
                         status: StudentStatus.Waiting,
-                        queuePosition: maxQueuePos + 1,
+                        queuePosition: 0, // Dummy value, backend will assign correct position
                     };
                 });
                 
-                addStudents(newStudents);
-                setFeedback({ type: 'success', message: `تم استيراد ${newStudents.length} طالب بنجاح!` });
+                await addStudents(newStudents);
+                setFeedback({ type: 'success', message: `تم إرسال ${newStudents.length} طالب بنجاح!` });
                 setCsvFile(null);
             } catch (error: any) {
                 setFeedback({ type: 'error', message: error.message || 'حدث خطأ أثناء معالجة الملف.' });

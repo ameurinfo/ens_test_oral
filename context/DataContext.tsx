@@ -1,98 +1,148 @@
-import React, { createContext, useState, useContext, ReactNode, useEffect } from 'react';
+import React, { createContext, useState, useContext, ReactNode, useEffect, useCallback } from 'react';
 import type { Student, Committee, Criterion, Evaluation } from '../types';
 import { StudentStatus } from '../types';
-import { getInitialCommittees, getInitialCriteria, getInitialStudents } from '../services/mockApi';
-
-const STUDENTS_STORAGE_KEY = 'oral_exam_students';
-const COMMITTEES_STORAGE_KEY = 'oral_exam_committees';
-const CRITERIA_STORAGE_KEY = 'oral_exam_criteria';
+import { getInitialStudents, getInitialCommittees, getInitialCriteria } from '../services/mockApi';
 
 interface DataContextType {
     students: Student[];
     committees: Committee[];
     criteria: Criterion[];
+    isLoading: boolean;
     getCommitteeById: (id: number) => Committee | undefined;
     getStudentsByCommitteeId: (id: number) => Student[];
     getCurrentStudent: (id: number) => Student | undefined;
     getNextStudent: (id: number) => Student | undefined;
     completeEvaluation: (studentId: number, evaluation: Evaluation) => void;
     findStudentById: (studentId: string) => Student | undefined;
-    addStudents: (newStudents: Student[]) => void;
+    addStudents: (newStudents: Student[]) => Promise<void>;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
+
+const API_BASE_URL = 'http://localhost/api';
+const LOCAL_STORAGE_KEYS = {
+    students: 'oral_exam_students',
+    committees: 'oral_exam_committees',
+    criteria: 'oral_exam_criteria',
+};
 
 export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
     const [students, setStudents] = useState<Student[]>([]);
     const [committees, setCommittees] = useState<Committee[]>([]);
     const [criteria, setCriteria] = useState<Criterion[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+
+    const fetchStudents = useCallback(async () => {
+        try {
+            const response = await fetch(`${API_BASE_URL}/students`);
+            if (!response.ok) throw new Error('Network response for students was not ok.');
+            const data: Student[] = await response.json();
+            setStudents(data);
+            localStorage.setItem(LOCAL_STORAGE_KEYS.students, JSON.stringify(data));
+        } catch (error) {
+            console.warn("Polling for students failed, using stale data:", error);
+        }
+    }, []);
 
     useEffect(() => {
-        // Initialize data from localStorage or fall back to mock data
-        const loadData = () => {
+        const loadInitialData = async () => {
+            setIsLoading(true);
             try {
-                const storedStudents = localStorage.getItem(STUDENTS_STORAGE_KEY);
-                if (storedStudents) {
-                    setStudents(JSON.parse(storedStudents));
-                } else {
-                    const initialStudents = getInitialStudents();
-                    setStudents(initialStudents);
-                    localStorage.setItem(STUDENTS_STORAGE_KEY, JSON.stringify(initialStudents));
+                // API First
+                console.log("Attempting to fetch data from API...");
+                const [committeesRes, criteriaRes, studentsRes] = await Promise.all([
+                    fetch(`${API_BASE_URL}/committees`),
+                    fetch(`${API_BASE_URL}/criteria`),
+                    fetch(`${API_BASE_URL}/students`),
+                ]);
+
+                if (!committeesRes.ok || !criteriaRes.ok || !studentsRes.ok) {
+                    throw new Error('Failed to fetch initial data from API.');
                 }
 
-                const storedCommittees = localStorage.getItem(COMMITTEES_STORAGE_KEY);
-                if (storedCommittees) {
-                    setCommittees(JSON.parse(storedCommittees));
-                } else {
-                    const initialCommittees = getInitialCommittees();
-                    setCommittees(initialCommittees);
-                    localStorage.setItem(COMMITTEES_STORAGE_KEY, JSON.stringify(initialCommittees));
-                }
+                const committeesData = await committeesRes.json();
+                const criteriaData = await criteriaRes.json();
+                const studentsData = await studentsRes.json();
+                
+                setCommittees(committeesData);
+                setCriteria(criteriaData);
+                setStudents(studentsData);
 
-                const storedCriteria = localStorage.getItem(CRITERIA_STORAGE_KEY);
-                if (storedCriteria) {
-                    setCriteria(JSON.parse(storedCriteria));
-                } else {
-                    const initialCriteria = getInitialCriteria();
-                    setCriteria(initialCriteria);
-                    localStorage.setItem(CRITERIA_STORAGE_KEY, JSON.stringify(initialCriteria));
+                localStorage.setItem(LOCAL_STORAGE_KEYS.committees, JSON.stringify(committeesData));
+                localStorage.setItem(LOCAL_STORAGE_KEYS.criteria, JSON.stringify(criteriaData));
+                localStorage.setItem(LOCAL_STORAGE_KEYS.students, JSON.stringify(studentsData));
+                console.log("Successfully loaded data from API.");
+
+            } catch (err) {
+                console.warn("API fetch failed. Attempting to load from localStorage.", err);
+                // Fallback to localStorage
+                try {
+                    const localCommittees = localStorage.getItem(LOCAL_STORAGE_KEYS.committees);
+                    const localCriteria = localStorage.getItem(LOCAL_STORAGE_KEYS.criteria);
+                    const localStudents = localStorage.getItem(LOCAL_STORAGE_KEYS.students);
+
+                    if (localCommittees && localCriteria && localStudents) {
+                        setCommittees(JSON.parse(localCommittees));
+                        setCriteria(JSON.parse(localCriteria));
+                        setStudents(JSON.parse(localStudents));
+                        console.log("Successfully loaded data from localStorage.");
+                    } else {
+                        // Fallback to Mock Data
+                        console.warn("localStorage is empty. Loading initial mock data.");
+                        const mockCommittees = getInitialCommittees();
+                        const mockCriteria = getInitialCriteria();
+                        const mockStudents = getInitialStudents();
+
+                        setCommittees(mockCommittees);
+                        setCriteria(mockCriteria);
+                        setStudents(mockStudents);
+
+                        localStorage.setItem(LOCAL_STORAGE_KEYS.committees, JSON.stringify(mockCommittees));
+                        localStorage.setItem(LOCAL_STORAGE_KEYS.criteria, JSON.stringify(mockCriteria));
+                        localStorage.setItem(LOCAL_STORAGE_KEYS.students, JSON.stringify(mockStudents));
+                    }
+                } catch (storageError) {
+                    console.error("Failed to load from localStorage or mock data:", storageError);
                 }
-            } catch (error) {
-                console.error("Failed to load data from localStorage", error);
-                // Fallback to mock data if localStorage is corrupt
-                setStudents(getInitialStudents());
-                setCommittees(getInitialCommittees());
-                setCriteria(getInitialCriteria());
+            } finally {
+                setIsLoading(false);
             }
         };
         
-        loadData();
+        loadInitialData();
 
-        // Real-time sync listener for cross-tab updates
-        const handleStorageChange = (event: StorageEvent) => {
-            if (event.key === STUDENTS_STORAGE_KEY && event.newValue) {
-                setStudents(JSON.parse(event.newValue));
-            }
-        };
-
-        window.addEventListener('storage', handleStorageChange);
+        const intervalId = setInterval(fetchStudents, 3000);
 
         return () => {
-            window.removeEventListener('storage', handleStorageChange);
+            clearInterval(intervalId);
         };
-    }, []);
-    
-    const updateStudentsStateAndStorage = (updatedStudents: Student[]) => {
-        setStudents(updatedStudents);
-        localStorage.setItem(STUDENTS_STORAGE_KEY, JSON.stringify(updatedStudents));
-    }
+    }, [fetchStudents]);
 
-    const addStudents = (newStudents: Student[]) => {
-        const existingIds = new Set(students.map(s => s.id));
-        const uniqueNewStudents = newStudents.filter(s => !existingIds.has(s.id));
+    const addStudents = async (newStudents: Student[]) => {
+        const studentsToImport = newStudents.map(({ id, name, specialty, committeeId }) => ({
+            id, name, specialty, committeeId
+        }));
 
-        const updatedStudents = [...students, ...uniqueNewStudents];
-        updateStudentsStateAndStorage(updatedStudents);
+        try {
+            const response = await fetch(`${API_BASE_URL}/students/import`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                },
+                body: JSON.stringify(studentsToImport),
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.message || 'Failed to import students');
+            }
+            
+            await fetchStudents();
+        } catch (error) {
+            console.error('Error importing students:', error);
+            throw error;
+        }
     };
 
     const getCommitteeById = (id: number): Committee | undefined => {
@@ -114,28 +164,25 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         return waitingStudents.length > 0 ? waitingStudents[0] : undefined;
     }
 
-    const completeEvaluation = (studentId: number, evaluation: Evaluation) => {
-        const newStudents = [...students];
-        const studentIndex = newStudents.findIndex(s => s.id === studentId);
-        if (studentIndex === -1) return;
-        
-        const currentStudent = newStudents[studentIndex];
-        
-        newStudents[studentIndex] = { ...currentStudent, status: StudentStatus.Completed, evaluation };
+    const completeEvaluation = async (studentId: number, evaluation: Evaluation) => {
+        try {
+            const response = await fetch(`${API_BASE_URL}/students/${studentId}/evaluate`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                },
+                body: JSON.stringify(evaluation),
+            });
 
-        const committeeStudents = newStudents
-            .filter(s => s.committeeId === currentStudent.committeeId && s.status === StudentStatus.Waiting)
-            .sort((a, b) => a.queuePosition - b.queuePosition);
-
-        if (committeeStudents.length > 0) {
-            const nextStudentId = committeeStudents[0].id;
-            const nextStudentIndex = newStudents.findIndex(s => s.id === nextStudentId);
-            if(nextStudentIndex !== -1) {
-                newStudents[nextStudentIndex] = { ...newStudents[nextStudentIndex], status: StudentStatus.InProgress };
+            if (!response.ok) {
+                throw new Error('Failed to submit evaluation');
             }
+            
+            await fetchStudents();
+        } catch (error) {
+            console.error('Error completing evaluation:', error);
         }
-        
-        updateStudentsStateAndStorage(newStudents);
     };
     
     const findStudentById = (studentId: string): Student | undefined => {
@@ -145,7 +192,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
 
     return (
-        <DataContext.Provider value={{ students, committees, criteria, getCommitteeById, getStudentsByCommitteeId, getCurrentStudent, getNextStudent, completeEvaluation, findStudentById, addStudents }}>
+        <DataContext.Provider value={{ students, committees, criteria, isLoading, getCommitteeById, getStudentsByCommitteeId, getCurrentStudent, getNextStudent, completeEvaluation, findStudentById, addStudents }}>
             {children}
         </DataContext.Provider>
     );
